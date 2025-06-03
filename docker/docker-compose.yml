@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # MySQL 資料庫服務
+  mysql:
+    image: mysql:8.0
+    container_name: social_platform_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword123
+      MYSQL_DATABASE: social_platform
+      MYSQL_USER: social_user
+      MYSQL_PASSWORD: social_password123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - social_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis 快取服務
+  redis:
+    image: redis:7-alpine
+    container_name: social_platform_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - social_network
+    command: redis-server --appendonly yes
+
+  # phpMyAdmin (可選 - 用於資料庫管理)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: social_platform_phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: social_user
+      PMA_PASSWORD: social_password123
+    depends_on:
+      - mysql
+    networks:
+      - social_network
+
+  # Redis Commander (可選 - 用於 Redis 管理)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: social_platform_redis_commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - social_network
+
+# 資料卷定義
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# 網路定義
+networks:
+  social_network:
+    driver: bridge
