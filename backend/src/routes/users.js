@@ -1,265 +1,218 @@
+﻿// backend/src/routes/users.js - 增強版包含統計刷新功能
 const express = require('express');
-const { body, validationResult, param } = require('express-validator');
-const { User } = require('../models');
-const { authenticateToken, requireAdmin, requireVerifiedOrAdmin } = require('../middleware/auth');
-
 const router = express.Router();
+const { User, Follow } = require('../models');
+const { authenticateToken } = require('../middleware/auth');
+const { 
+    getUserProfile, 
+    updateUserProfile, 
+    testUserStats,
+    forceRefreshStats,      // 🔥 新增
+    syncAllUserStats       // 🔥 新增
+} = require('../../controllers/userController');
+const { createNotification } = require('../../controllers/notificationController');
 
-// 處理驗證錯誤
-const handleValidationErrors = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      error: 'Validation failed',
-      details: errors.array()
-    });
-  }
-  next();
-};
+// 搜尋用戶
+router.get('/search', authenticateToken, async (req, res) => {
+    try {
+        const { q } = req.query;
+        
+        if (!q || q.trim().length < 2) {
+            return res.json({ users: [] });
+        }
 
-/**
- * @route   GET /api/v1/users
- * @desc    獲取用戶列表 (支援分頁和篩選)
- * @access  Private (認證用戶或管理員)
- */
-router.get('/', authenticateToken, requireVerifiedOrAdmin, async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      role,
-      search
-    } = req.query;
+        const users = await User.findAll({
+            where: {
+                [require('sequelize').Op.or]: [
+                    { username: { [require('sequelize').Op.like]: `%${q}%` } },
+                    { displayName: { [require('sequelize').Op.like]: `%${q}%` } }
+                ]
+            },
+            attributes: ['id', 'username', 'displayName', 'avatarUrl', 'userRole', 'verified'],
+            limit: 10
+        });
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const whereClause = {};
+        // 檢查當前用戶對每個搜尋結果用戶的追蹤狀態
+        const usersWithFollowStatus = await Promise.all(users.map(async (user) => {
+            const userJson = user.toJSON();
+            
+            // 檢查是否已追蹤
+            const followRecord = await Follow.findOne({
+                where: {
+                    followerId: req.user.id,
+                    followingId: user.id
+                }
+            });
+            
+            userJson.isFollowing = !!followRecord;
+            userJson.isOwnProfile = user.id === req.user.id;
+            
+            return userJson;
+        }));
 
-    // 角色篩選
-    if (role && ['regular', 'verified', 'admin'].includes(role)) {
-      whereClause.userRole = role;
+        res.json({ users: usersWithFollowStatus });
+    } catch (error) {
+        console.error('搜尋用戶錯誤:', error);
+        res.status(500).json({ error: '搜尋用戶失敗' });
     }
-
-    // 搜尋功能
-    if (search) {
-      whereClause[Op.or] = [
-        { username: { [Op.like]: `%${search}%` } },
-        { displayName: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    const users = await User.findAndCountAll({
-      where: whereClause,
-      attributes: { exclude: ['password'] },
-      limit: parseInt(limit),
-      offset: offset,
-      order: [['createdAt', 'DESC']]
-    });
-
-    res.json({
-      users: users.rows,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(users.count / limit),
-        totalItems: users.count,
-        itemsPerPage: parseInt(limit)
-      }
-    });
-
-  } catch (error) {
-    console.error('Get users error:', error);
-    res.status(500).json({ error: '獲取用戶列表失敗' });
-  }
 });
 
-/**
- * @route   GET /api/v1/users/:id
- * @desc    獲取特定用戶詳情
- * @access  Private
- */
-router.get('/:id', [
-  authenticateToken,
-  param('id').isUUID().withMessage('無效的用戶 ID')
-], handleValidationErrors, async (req, res) => {
-  try {
-    const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['password'] }
-    });
+// 追蹤/取消追蹤用戶
+router.post('/:userId/follow', authenticateToken, async (req, res) => {
+    try {
+        const targetUserId = req.params.userId;
+        const currentUserId = req.user.id;
 
-    if (!user) {
-      return res.status(404).json({ error: '用戶不存在' });
+        if (targetUserId === currentUserId) {
+            return res.status(400).json({ error: '無法追蹤自己' });
+        }
+
+        // 檢查目標用戶是否存在
+        const targetUser = await User.findByPk(targetUserId);
+        if (!targetUser) {
+            return res.status(404).json({ error: '用戶不存在' });
+        }
+
+        // 檢查是否已經追蹤
+        const existingFollow = await Follow.findOne({
+            where: {
+                followerId: currentUserId,
+                followingId: targetUserId
+            }
+        });
+
+        let isFollowing;
+        
+        if (existingFollow) {
+            // 取消追蹤
+            await existingFollow.destroy();
+            isFollowing = false;
+            console.log(`✅ 用戶 ${currentUserId} 取消追蹤 ${targetUserId}`);
+        } else {
+            // 開始追蹤
+            await Follow.create({
+                followerId: currentUserId,
+                followingId: targetUserId
+            });
+            isFollowing = true;
+            console.log(`✅ 用戶 ${currentUserId} 開始追蹤 ${targetUserId}`);
+
+            // 🔔 發送追蹤通知
+            await createNotification({
+                userId: targetUserId,
+                fromUserId: currentUserId,
+                type: 'follow',
+                title: `${req.user.username} 開始追蹤您`,
+                content: `恭喜！您獲得了一位新的追蹤者`,
+                relatedId: null
+            });
+
+            console.log(`🔔 已發送追蹤通知給用戶 ${targetUserId}`);
+        }
+
+        res.json({
+            message: isFollowing ? '追蹤成功' : '取消追蹤成功',
+            isFollowing
+        });
+
+    } catch (error) {
+        console.error('❌ 追蹤操作錯誤:', error);
+        res.status(500).json({ error: '追蹤操作失敗' });
     }
-
-    res.json({ user: user.toJSON() });
-
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: '獲取用戶資訊失敗' });
-  }
 });
 
-/**
- * @route   PUT /api/v1/users/:id
- * @desc    更新用戶資訊
- * @access  Private (本人或管理員)
- */
-router.put('/:id', [
-  authenticateToken,
-  param('id').isUUID().withMessage('無效的用戶 ID'),
-  body('displayName').optional().isLength({ min: 1, max: 100 }),
-  body('bio').optional().isLength({ max: 500 }),
-  body('avatarUrl').optional().isURL()
-], handleValidationErrors, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { displayName, bio, avatarUrl } = req.body;
+// 獲取粉絲列表
+router.get('/:userId/followers', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        
+        const followers = await Follow.findAll({
+            where: { followingId: userId },
+            include: [{
+                model: User,
+                as: 'follower',
+                attributes: ['id', 'username', 'displayName', 'avatarUrl', 'userRole', 'verified']
+            }]
+        });
 
-    // 檢查權限：只有本人或管理員可以更新
-    if (req.user.id !== id && req.user.userRole !== 'admin') {
-      return res.status(403).json({ error: '無權限修改此用戶資訊' });
+        const followerUsers = followers.map(follow => follow.follower);
+
+        res.json({ followers: followerUsers });
+    } catch (error) {
+        console.error('獲取粉絲列表錯誤:', error);
+        res.status(500).json({ error: '獲取粉絲列表失敗' });
     }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: '用戶不存在' });
-    }
-
-    // 更新允許的欄位
-    const updateData = {};
-    if (displayName !== undefined) updateData.displayName = displayName;
-    if (bio !== undefined) updateData.bio = bio;
-    if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
-
-    await user.update(updateData);
-
-    res.json({
-      message: '用戶資訊更新成功',
-      user: user.toJSON()
-    });
-
-  } catch (error) {
-    console.error('Update user error:', error);
-    res.status(500).json({ error: '更新用戶資訊失敗' });
-  }
 });
 
-/**
- * @route   PUT /api/v1/users/:id/role
- * @desc    更新用戶角色 (管理員專用)
- * @access  Private (管理員)
- */
-router.put('/:id/role', [
-  authenticateToken,
-  requireAdmin,
-  param('id').isUUID().withMessage('無效的用戶 ID'),
-  body('userRole').isIn(['regular', 'verified', 'admin']).withMessage('無效的用戶角色')
-], handleValidationErrors, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userRole } = req.body;
+// 獲取追蹤列表
+router.get('/:userId/following', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        
+        const following = await Follow.findAll({
+            where: { followerId: userId },
+            include: [{
+                model: User,
+                as: 'following',
+                attributes: ['id', 'username', 'displayName', 'avatarUrl', 'userRole', 'verified']
+            }]
+        });
 
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: '用戶不存在' });
+        const followingUsers = following.map(follow => follow.following);
+
+        res.json({ following: followingUsers });
+    } catch (error) {
+        console.error('獲取追蹤列表錯誤:', error);
+        res.status(500).json({ error: '獲取追蹤列表失敗' });
     }
-
-    // 防止管理員移除自己的管理員權限
-    if (req.user.id === id && userRole !== 'admin') {
-      return res.status(400).json({ error: '不能移除自己的管理員權限' });
-    }
-
-    const oldRole = user.userRole;
-    await user.update({ userRole });
-
-    res.json({
-      message: '用戶角色更新成功',
-      user: user.toJSON(),
-      roleChange: {
-        from: oldRole,
-        to: userRole
-      }
-    });
-
-  } catch (error) {
-    console.error('Update user role error:', error);
-    res.status(500).json({ error: '更新用戶角色失敗' });
-  }
 });
 
-/**
- * @route   DELETE /api/v1/users/:id
- * @desc    刪除用戶 (管理員專用)
- * @access  Private (管理員)
- */
-router.delete('/:id', [
-  authenticateToken,
-  requireAdmin,
-  param('id').isUUID().withMessage('無效的用戶 ID')
-], handleValidationErrors, async (req, res) => {
-  try {
-    const { id } = req.params;
+// 🔥 獲取用戶檔案 - 包含統計資訊
+router.get('/:userId/profile', authenticateToken, getUserProfile);
 
-    // 防止管理員刪除自己
-    if (req.user.id === id) {
-      return res.status(400).json({ error: '不能刪除自己的帳號' });
+// 🔥 更新用戶檔案
+router.put('/profile', authenticateToken, updateUserProfile);
+
+// 🔥 強制刷新指定用戶的統計
+router.post('/:userId/stats/refresh', authenticateToken, forceRefreshStats);
+
+// 🔥 強制刷新當前用戶的統計
+router.post('/stats/refresh', authenticateToken, forceRefreshStats);
+
+// 🔥 同步所有用戶統計（管理員專用）
+router.post('/stats/sync-all', authenticateToken, syncAllUserStats);
+
+// 🔥 測試用戶統計計算
+router.get('/:userId/stats/test', authenticateToken, testUserStats);
+
+// 🔥 獲取當前用戶資訊
+router.get('/me', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findByPk(req.user.id, {
+            attributes: [
+                'id', 'username', 'displayName', 'email', 'avatarUrl',
+                'userRole', 'verified', 'createdAt', 'updatedAt'
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: '用戶不存在'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: user.toJSON()
+        });
+    } catch (error) {
+        console.error('❌ 獲取用戶資訊錯誤:', error);
+        res.status(500).json({
+            success: false,
+            error: '獲取用戶資訊失敗'
+        });
     }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: '用戶不存在' });
-    }
-
-    await user.destroy();
-
-    res.json({
-      message: '用戶刪除成功',
-      deletedUser: {
-        id: user.id,
-        username: user.username,
-        userRole: user.userRole
-      }
-    });
-
-  } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({ error: '刪除用戶失敗' });
-  }
-});
-
-/**
- * @route   GET /api/v1/users/stats/overview
- * @desc    獲取用戶統計概覽 (管理員專用)
- * @access  Private (管理員)
- */
-router.get('/stats/overview', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const stats = await User.findAll({
-      attributes: [
-        'userRole',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['userRole']
-    });
-
-    const overview = {
-      total: 0,
-      regular: 0,
-      verified: 0,
-      admin: 0
-    };
-
-    stats.forEach(stat => {
-      const role = stat.userRole;
-      const count = parseInt(stat.dataValues.count);
-      overview[role] = count;
-      overview.total += count;
-    });
-
-    res.json({ stats: overview });
-
-  } catch (error) {
-    console.error('Get user stats error:', error);
-    res.status(500).json({ error: '獲取用戶統計失敗' });
-  }
 });
 
 module.exports = router;

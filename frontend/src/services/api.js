@@ -1,7 +1,8 @@
 import axios from 'axios';
-import toast from 'react-hot-toast';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api/v1';
+
+console.log('API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -14,6 +15,7 @@ const api = axios.create({
 // 請求攔截器
 api.interceptors.request.use(
   (config) => {
+    console.log('Making API request:', config.method?.toUpperCase(), config.url);
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -21,6 +23,7 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('Request error:', error);
     return Promise.reject(error);
   }
 );
@@ -28,18 +31,18 @@ api.interceptors.request.use(
 // 回應攔截器
 api.interceptors.response.use(
   (response) => {
+    console.log('API response:', response.status, response.data);
     return response;
   },
   (error) => {
+    console.error('API error:', error.response?.status, error.response?.data);
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       delete api.defaults.headers.common['Authorization'];
-      toast.error('登入已過期，請重新登入');
       setTimeout(() => {
         window.location.href = '/login';
       }, 1500);
     }
-    
     return Promise.reject(error);
   }
 );
