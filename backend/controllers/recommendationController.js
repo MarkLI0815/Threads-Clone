@@ -52,8 +52,15 @@ const getRecommendedPosts = async (req, res) => {
                 {
                     model: Comment,
                     as: 'comments',
-                    attributes: ['id', 'userId', 'content'],
-                    required: false
+                    attributes: ['id', 'userId', 'content', 'createdAt'],  // 🔥 添加 createdAt
+                    include: [{  // 🔥 添加評論作者信息
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'username', 'displayName', 'avatarUrl', 'userRole', 'verified']
+                    }],
+                    required: false,
+                    order: [['createdAt', 'ASC']],  // 🔥 評論按時間排序
+                    limit: 10  // 🔥 限制評論數量避免數據過大
                 }
             ],
             order: [['createdAt', 'DESC']],
@@ -75,11 +82,11 @@ const getRecommendedPosts = async (req, res) => {
         // 4. 為每篇貼文計算推薦分數
         const postsWithScores = posts.map(post => {
             const postData = post.toJSON();
-            
+
             // 🔥 修復：確保 likes 和 comments 數據正確處理
             const likesCount = Array.isArray(postData.likes) ? postData.likes.length : 0;
             const commentsCount = Array.isArray(postData.comments) ? postData.comments.length : 0;
-            const isLiked = Array.isArray(postData.likes) ? 
+            const isLiked = Array.isArray(postData.likes) ?
                 postData.likes.some(like => like.userId === userId) : false;
 
             // 🔥 計算推薦分數 - 基礎分數為 0
@@ -91,7 +98,7 @@ const getRecommendedPosts = async (req, res) => {
                 roleBonus: 0,
                 total: 0
             };
-            
+
             // 🔥 權重 1: 追蹤用戶貼文 (70分基礎分數)
             const isFollowingUser = followingIds.includes(postData.userId);
             if (isFollowingUser) {
@@ -99,12 +106,12 @@ const getRecommendedPosts = async (req, res) => {
                 score += 70;
                 console.log(`👥 追蹤用戶貼文: ${postData.id} by ${postData.user?.username} (+70分)`);
             }
-            
+
             // 🔥 權重 2: 熱門內容 (最高20分)
             const popularityScore = Math.min(20, (likesCount * 3 + commentsCount * 5));
             scoreDetails.popularity = popularityScore;
             score += popularityScore;
-            
+
             // 🔥 權重 3: 時間新鮮度 (最高10分)
             const isRecent = new Date(postData.createdAt) > sevenDaysAgo;
             if (isRecent) {
@@ -113,14 +120,14 @@ const getRecommendedPosts = async (req, res) => {
                 scoreDetails.recency = recencyScore;
                 score += recencyScore;
             }
-            
+
             // 🔥 特殊加分：認證用戶和管理員
             const author = postData.user;
             if (author && (author.verified || author.userRole === 'verified')) {
                 scoreDetails.roleBonus += 5;
                 score += 5;
             }
-            
+
             if (author && author.userRole === 'admin') {
                 scoreDetails.roleBonus += 3;
                 score += 3;
@@ -151,13 +158,20 @@ const getRecommendedPosts = async (req, res) => {
                     userRole: author?.userRole || 'regular',
                     verified: author?.verified || false
                 },
+                // 🔥 統一愛心數據格式
                 isLikedByUser: isLiked,
-                likesCount: likesCount,
+                likes: likesCount,           // 🔥 前端期望的格式
+                likeCount: likesCount,       // 🔥 備用格式
+                likesCount: likesCount,      // 🔥 原本格式
+
+                // 🔥 統一評論數據格式
+                comments: postData.comments || [],      // 🔥 完整評論數據（包含作者信息）
                 commentsCount: commentsCount,
-                comments: postData.comments || [],
+                commentCount: commentsCount,            // 🔥 備用格式
+
                 recommendationScore: score,
-                debugScore: score, // 🔥 添加調試分數
-                scoreDetails // 🔥 添加分數詳情用於調試
+                debugScore: score,
+                scoreDetails
             };
         });
 
@@ -196,7 +210,7 @@ const getRecommendedPosts = async (req, res) => {
                 version: '2.3-fixed-relations',
                 weights: {
                     following: '70分 (基礎)',
-                    popularity: '最高20分', 
+                    popularity: '最高20分',
                     recency: '最高10分',
                     roleBonus: '認證+5分, 管理員+3分'
                 }
@@ -236,9 +250,9 @@ const getUserInterests = async (req, res) => {
         console.log(`🧠 分析用戶 ${userId} 的興趣...`);
 
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        
+
         const recentLikes = await Like.findAll({
-            where: { 
+            where: {
                 userId,
                 createdAt: {
                     [Op.gte]: thirtyDaysAgo
@@ -278,7 +292,7 @@ const getUserInterests = async (req, res) => {
         });
 
         const topAuthors = Object.entries(authorInteractions)
-            .sort(([,a], [,b]) => b - a)
+            .sort(([, a], [, b]) => b - a)
             .slice(0, 5)
             .map(([authorId, count]) => ({ authorId, interactions: count }));
 

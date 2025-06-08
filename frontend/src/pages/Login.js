@@ -84,21 +84,21 @@ const Login = () => {
   const testAccounts = [
     { 
       email: 'admin@example.com', 
-      password: '12345', 
+      password: 'password123', 
       role: '管理員',
       description: '可管理用戶和內容',
       color: 'bg-red-500'
     },
     { 
       email: 'verified@example.com', 
-      password: '12345', 
+      password: 'password123', 
       role: '認證用戶',
       description: '認證標誌和優先推薦',
       color: 'bg-blue-500'
     },
     { 
       email: 'test@example.com', 
-      password: '12345', 
+      password: 'password123', 
       role: '一般用戶',
       description: '基礎社交功能',
       color: 'bg-green-500'
@@ -170,10 +170,10 @@ const Login = () => {
         {/* Logo 和標題 */}
         <div className="text-center">
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
-            智慧社交平台
+            雲端計算期末專題
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            三種用戶角色系統展示
+            M11359017 - 李柏翰
           </p>
         </div>
 
@@ -318,7 +318,7 @@ const Login = () => {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="px-2 bg-gray-50 text-gray-500">
-                🧪 快速測試登入（密碼統一：12345）
+                🧪 快速測試登入（密碼統一：password123）
               </span>
             </div>
           </div>
@@ -388,19 +388,7 @@ const Login = () => {
           </span>
         </div>
 
-        {/* 忘記密碼 */}
-        <div className="text-center">
-          <a 
-            href="#" 
-            className="text-sm text-blue-600 hover:text-blue-500 transition-colors"
-            onClick={(e) => {
-              e.preventDefault();
-              alert('密碼重設功能開發中，請使用測試帳戶或聯繫管理員');
-            }}
-          >
-            忘記密碼？
-          </a>
-        </div>
+        
       </div>
     </div>
   );

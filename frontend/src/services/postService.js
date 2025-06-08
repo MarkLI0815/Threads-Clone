@@ -79,21 +79,41 @@ export const createPost = async (postData) => {
         
         const response = await api.post('/posts', postData);
         
-        console.log('postService: Post created successfully:', response.data);
+        console.log('postService: Raw response:', response.data);
         
-        // 安全處理創建回應
+        // 🔥 修復：正確處理後端回應格式
         let createdPost = null;
+        
         if (response.data) {
-            if (response.data.success && response.data.data) {
+            // 後端返回格式：{ message: '...', post: {...} }
+            if (response.data.post) {
+                createdPost = response.data.post;
+                console.log('✅ 提取到貼文數據:', createdPost);
+            }
+            // 備用格式處理
+            else if (response.data.success && response.data.data) {
                 createdPost = response.data.data;
-            } else if (response.data.id) {
+            }
+            // 直接是貼文對象
+            else if (response.data.id) {
                 createdPost = response.data;
             }
         }
         
+        if (!createdPost) {
+            console.error('❌ 無法提取貼文數據:', response.data);
+            return {
+                success: false,
+                error: '貼文數據格式錯誤'
+            };
+        }
+        
+        console.log('✅ 貼文創建成功:', createdPost);
+        
         return {
             success: true,
-            data: createdPost
+            data: createdPost,  // 🔥 直接返回貼文對象，不要包裝
+            message: response.data.message || '貼文創建成功'
         };
         
     } catch (error) {

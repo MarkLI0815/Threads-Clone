@@ -31,6 +31,6 @@ router.delete('/:id', authenticateToken, deletePost);
 router.post('/:id/like', authenticateToken, toggleLike);
 
 // 添加評論
-router.post('/:id/comment', authenticateToken, addComment);
+router.post('/:id/comments', authenticateToken, addComment);
 
 module.exports = router;

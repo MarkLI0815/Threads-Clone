@@ -27,7 +27,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
 
     const handleLike = async () => {
         if (liking) return;
-        
+
         setLiking(true);
         try {
             const result = await togglePostLike(localPost.id, localPost.isLikedByUser);
@@ -52,7 +52,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
     // 🔥 修復評論提交功能
     const handleComment = async (e) => {
         e.preventDefault();
-        
+
         console.log('🔥 評論提交開始:', {
             commentText: commentText.trim(),
             isSubmittingComment,
@@ -73,27 +73,27 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
         }
 
         setIsSubmittingComment(true);
-        
+
         try {
             console.log('📡 發送評論請求:', localPost.id, commentText.trim());
-            
+
             const result = await addPostComment(localPost.id, commentText.trim());
-            
+
             console.log('📡 評論請求結果:', result);
 
             if (result.success && result.data && result.data.comment) {
                 console.log('✅ 評論提交成功:', result.data.comment);
-                
+
                 // 🔥 更新本地貼文狀態
                 setLocalPost(prev => ({
                     ...prev,
                     comments: [...(prev.comments || []), result.data.comment],
                     commentsCount: (prev.commentsCount || 0) + 1
                 }));
-                
+
                 // 🔥 清空輸入框
                 setCommentText('');
-                
+
                 // 🔥 確保評論區保持展開
                 setShowComments(true);
 
@@ -157,19 +157,38 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
     const handleDeletePost = async () => {
         if (deletingPost) return;
 
+        console.log('🗑️ 執行刪除操作 - 貼文ID:', localPost.id);
         setDeletingPost(true);
+
         try {
             const result = await deletePost(localPost.id);
+
+            console.log('🗑️ 刪除API結果:', result);
+
             if (result.success) {
+                console.log('✅ 刪除成功，關閉確認對話框');
                 setShowDeleteConfirm(false);
+
+                // 🔥 關鍵修復：強制調用父組件更新
+                console.log('🔄 調用父組件更新，onPostDeleted存在?', !!onPostDeleted);
+
                 if (onPostDeleted) {
-                    onPostDeleted();
+                    // 🔥 確保傳遞正確的ID（可能是字串或數字）
+                    const postIdToDelete = localPost.id;
+                    console.log('📤 傳遞給父組件的ID:', postIdToDelete, '類型:', typeof postIdToDelete);
+                    onPostDeleted(postIdToDelete);
+                } else {
+                    console.error('❌ onPostDeleted 回調函數不存在！');
+                    // 🔥 備用方案：強制重新載入頁面
+                    window.location.reload();
                 }
             } else {
+                console.error('❌ 刪除失敗:', result.error);
                 alert('刪除貼文失敗：' + result.error);
             }
         } catch (error) {
-            alert('刪除貼文時發生錯誤');
+            console.error('❌ 刪除異常:', error);
+            alert('刪除貼文時發生錯誤：' + error.message);
         } finally {
             setDeletingPost(false);
         }
@@ -223,7 +242,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
         const diffInMs = now - postDate;
         const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
         const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-        
+
         if (diffInHours < 1) return '剛剛';
         if (diffInHours < 24) return `${diffInHours} 小時`;
         if (diffInDays < 7) return `${diffInDays} 天`;
@@ -244,15 +263,15 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
 
     const getImageUrl = (imageUrl) => {
         if (!imageUrl) return null;
-        
+
         if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
             return imageUrl;
         }
-        
+
         if (imageUrl.startsWith('/uploads')) {
             return `http://localhost:3001${imageUrl}`;
         }
-        
+
         return imageUrl;
     };
 
@@ -274,15 +293,14 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                                     {localPost.user.displayName || localPost.user.username}
                                 </span>
                                 <span className="text-gray-400 text-sm">@{localPost.user.username}</span>
-                                
+
                                 {/* 角色標籤 */}
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                    localPost.user.userRole === 'admin' ? 'bg-red-500' :
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${localPost.user.userRole === 'admin' ? 'bg-red-500' :
                                     localPost.user.userRole === 'verified' ? 'bg-blue-500' :
-                                    'bg-green-500'
-                                } text-white`}>
+                                        'bg-green-500'
+                                    } text-white`}>
                                     {localPost.user.userRole === 'admin' ? '管理員' :
-                                     localPost.user.userRole === 'verified' ? '認證' : '一般'}
+                                        localPost.user.userRole === 'verified' ? '認證' : '一般'}
                                 </span>
 
                                 {localPost.user.verified && (
@@ -343,7 +361,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                         </div>
 
                         {/* 貼文文字內容 */}
-                        <div className="text-white mb-3 leading-relaxed">
+                        <div className="text-white mb-3 leading-relaxed whitespace-pre-wrap break-words">
                             {localPost.content}
                         </div>
 
@@ -366,11 +384,10 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                             <button
                                 onClick={handleLike}
                                 disabled={liking}
-                                className={`flex items-center space-x-2 px-3 py-2 rounded-full transition-colors ${
-                                    localPost.isLikedByUser
-                                        ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20'
-                                        : 'hover:text-red-500 hover:bg-red-500/10'
-                                } disabled:opacity-50`}
+                                className={`flex items-center space-x-2 px-3 py-2 rounded-full transition-colors ${localPost.isLikedByUser
+                                    ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20'
+                                    : 'hover:text-red-500 hover:bg-red-500/10'
+                                    } disabled:opacity-50`}
                             >
                                 <svg className="w-5 h-5" fill={localPost.isLikedByUser ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
@@ -380,11 +397,10 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
 
                             <button
                                 onClick={handleCommentButtonClick}
-                                className={`flex items-center space-x-2 px-3 py-2 rounded-full transition-colors ${
-                                    showComments 
-                                        ? 'text-blue-500 bg-blue-500/10' 
-                                        : 'hover:text-blue-500 hover:bg-blue-500/10'
-                                }`}
+                                className={`flex items-center space-x-2 px-3 py-2 rounded-full transition-colors ${showComments
+                                    ? 'text-blue-500 bg-blue-500/10'
+                                    : 'hover:text-blue-500 hover:bg-blue-500/10'
+                                    }`}
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -392,7 +408,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                                 <span>{localPost.commentsCount || 0}</span>
                             </button>
 
-                            <button 
+                            <button
                                 onClick={handleShare}
                                 className="flex items-center space-x-2 px-3 py-2 rounded-full hover:text-green-500 hover:bg-green-500/10 transition-colors"
                             >
@@ -489,7 +505,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md">
                         <h3 className="text-xl font-bold text-white mb-6">編輯貼文</h3>
-                        
+
                         <form onSubmit={handleEditPost} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -551,7 +567,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                         <p className="text-gray-300 mb-6">
                             您確定要刪除這則貼文嗎？此操作無法復原。
                         </p>
-                        
+
                         <div className="flex space-x-3">
                             <button
                                 onClick={() => setShowDeleteConfirm(false)}
@@ -576,7 +592,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md">
                         <h3 className="text-xl font-bold text-white mb-6">分享貼文</h3>
-                        
+
                         <div className="space-y-3">
                             <button
                                 onClick={handleCopyLink}
@@ -587,7 +603,7 @@ const ModernPostCard = ({ post, onInteraction, onPostDeleted }) => {
                                 </svg>
                                 <span className="text-white">複製連結</span>
                             </button>
-                            
+
                             <button
                                 onClick={() => setShowShareModal(false)}
                                 className="w-full px-4 py-3 border border-gray-600 text-white rounded-lg hover:bg-gray-800 transition-colors"

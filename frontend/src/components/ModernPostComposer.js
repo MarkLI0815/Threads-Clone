@@ -34,7 +34,7 @@ const ModernPostComposer = ({ onPostCreated }) => {
             }
 
             setSelectedImage(file);
-            
+
             // 創建預覽
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -56,7 +56,7 @@ const ModernPostComposer = ({ onPostCreated }) => {
     // 提交貼文
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
         if (!content.trim() || isOverLimit || isLoading) {
             return;
         }
@@ -91,16 +91,23 @@ const ModernPostComposer = ({ onPostCreated }) => {
             const result = await createPost(postData);
 
             if (result.success) {
+                console.log('✅ 貼文創建成功:', result.data);
+
                 // 重置表單
                 setContent('');
                 removeImage();
-                
-                // 通知父組件
-                if (onPostCreated) {
-                    onPostCreated(result.data.post);
+
+                // 🔥 修復：正確調用父組件回調
+                if (onPostCreated && result.data) {
+                    console.log('🔄 調用 onPostCreated 回調:', result.data);
+                    onPostCreated(result.data);  // 🔥 result.data 就是貼文對象
                 }
+
+                // 🔥 可選：顯示成功訊息
+                console.log('✅ 貼文發布成功！');
+
             } else {
-                console.error('Post creation failed:', result.error);
+                console.error('❌ 貼文創建失敗:', result.error);
                 alert('發布失敗：' + result.error);
             }
         } catch (error) {
@@ -174,7 +181,7 @@ const ModernPostComposer = ({ onPostCreated }) => {
                                 disabled={isLoading}
                                 style={{ minHeight: '80px' }}
                             />
-                            
+
                             {/* 字數統計 */}
                             <div className="absolute bottom-2 right-2">
                                 <div className={`text-sm ${isOverLimit ? 'text-red-500' : 'text-gray-500'}`}>
@@ -189,9 +196,9 @@ const ModernPostComposer = ({ onPostCreated }) => {
                         {imagePreview && (
                             <div className="mt-4 relative">
                                 <div className="relative inline-block rounded-2xl overflow-hidden border border-gray-700 max-w-md">
-                                    <img 
-                                        src={imagePreview} 
-                                        alt="預覽圖片" 
+                                    <img
+                                        src={imagePreview}
+                                        alt="預覽圖片"
                                         className="max-w-full h-auto max-h-80 object-cover"
                                     />
                                     {/* 移除圖片按鈕 */}

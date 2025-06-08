@@ -33,7 +33,7 @@ const ModernTimelineHome = () => {
             if (result.success) {
                 const postsData = Array.isArray(result.posts) ? result.posts : [];
                 console.log(`✅ 成功載入 ${postsData.length} 篇推薦貼文`);
-                
+
                 // 🔥 確保每個貼文都有分數數據
                 const postsWithValidScores = postsData.map((post, index) => ({
                     ...post,
@@ -46,7 +46,7 @@ const ModernTimelineHome = () => {
                         displayName: post.user?.displayName || post.user?.username
                     }
                 }));
-                
+
                 setPosts(postsWithValidScores);
 
                 // 🔥 設定推薦統計資訊
@@ -57,7 +57,7 @@ const ModernTimelineHome = () => {
                             totalScored: postsWithValidScores.length,
                             followingPosts: 0,
                             verifiedPosts: postsWithValidScores.filter(p => p.user?.verified || p.user?.userRole === 'verified').length,
-                            avgScore: postsWithValidScores.length > 0 ? 
+                            avgScore: postsWithValidScores.length > 0 ?
                                 postsWithValidScores.reduce((sum, p) => sum + (p.debugScore || 0), 0) / postsWithValidScores.length : 0
                         }
                     }
@@ -96,7 +96,7 @@ const ModernTimelineHome = () => {
             console.log('🔄 載入貼文...', { feedType: feedTypeParam });
 
             let result;
-            
+
             // 🔥 根據不同類型載入不同的貼文
             switch (feedTypeParam) {
                 case 'following':
@@ -107,7 +107,7 @@ const ModernTimelineHome = () => {
                         feedType: 'following'
                     });
                     break;
-                    
+
                 case 'trending':
                     // 載入推薦/熱門貼文
                     result = await getTrendingPosts({
@@ -115,7 +115,7 @@ const ModernTimelineHome = () => {
                         timeRange: '24h'
                     });
                     break;
-                    
+
                 case 'all':
                 default:
                     // 載入所有貼文
@@ -132,16 +132,16 @@ const ModernTimelineHome = () => {
             if (result.success) {
                 // 🔥 安全檢查：確保 data 是陣列
                 let postsData = [];
-                
+
                 if (feedTypeParam === 'trending') {
                     // 熱門貼文的回應格式可能不同
                     postsData = Array.isArray(result.data) ? result.data : [];
                 } else {
                     // 一般貼文
-                    postsData = Array.isArray(result.data) ? result.data : 
-                              Array.isArray(result.data?.posts) ? result.data.posts : [];
+                    postsData = Array.isArray(result.data) ? result.data :
+                        Array.isArray(result.data?.posts) ? result.data.posts : [];
                 }
-                
+
                 console.log(`✅ 成功載入 ${postsData.length} 篇貼文 (${feedTypeParam})`);
                 setPosts(postsData);
                 setRecommendationStats(null); // 清除推薦統計
@@ -163,7 +163,7 @@ const ModernTimelineHome = () => {
     // 🔥 統一的載入函數
     const loadPosts = useCallback((showLoading = true) => {
         console.log(`🔄 載入貼文: ${feedType}`);
-        
+
         if (feedType === 'recommendations') {
             return loadRecommendedPosts(showLoading);
         } else {
@@ -201,13 +201,55 @@ const ModernTimelineHome = () => {
         });
     };
 
+    const handlePostDeleted = useCallback((deletedPostId) => {
+        console.log('🗑️ 父組件收到刪除通知 - ID:', deletedPostId, '類型:', typeof deletedPostId);
+        console.log('📋 當前貼文數量:', posts?.length);
+        console.log('📋 當前貼文IDs:', posts?.map(p => `${p.id}(${typeof p.id})`));
+
+        // 🔥 強制重新載入貼文（備用方案）
+        const forceReload = () => {
+            console.log('🔄 強制重新載入貼文');
+            loadPosts(false);
+        };
+
+        // 🔥 嘗試即時更新
+        setPosts(prevPosts => {
+            if (!Array.isArray(prevPosts)) {
+                console.error('❌ prevPosts 不是陣列:', prevPosts);
+                forceReload();
+                return prevPosts;
+            }
+
+            // 🔥 支援字串和數字ID比較
+            const updatedPosts = prevPosts.filter(post => {
+                const match = String(post.id) === String(deletedPostId);
+                return !match; // 保留不匹配的（即不是要刪除的）
+            });
+
+            console.log('✅ 即時更新結果:', {
+                原本數量: prevPosts.length,
+                更新後數量: updatedPosts.length,
+                成功移除: prevPosts.length > updatedPosts.length
+            });
+
+            // 🔥 如果沒有成功移除，使用備用方案
+            if (prevPosts.length === updatedPosts.length) {
+                console.warn('⚠️ 即時更新失敗，1秒後重新載入');
+                setTimeout(forceReload, 1000);
+            }
+
+            return updatedPosts;
+        });
+    }, [posts, loadPosts]); // 🔥 添加必要的依賴
+
+
     // 按讚狀態變更回調
     const handleLikeChange = (postId, newLikeState) => {
         console.log('👍 按讚狀態變更:', { postId, newLikeState });
         // 🔥 安全地更新貼文的按讚狀態
         setPosts(prevPosts => {
             if (!Array.isArray(prevPosts)) return [];
-            
+
             return prevPosts.map(post => {
                 if (post && post.id === postId) {
                     return {
@@ -221,13 +263,18 @@ const ModernTimelineHome = () => {
         });
     };
 
+    const handleInteraction = useCallback(() => {
+        // 可以選擇重新載入貼文或其他處理
+        console.log('📝 貼文互動發生');
+    }, []);
+
     // 評論新增回調
     const handleCommentAdded = (postId, newComment) => {
         console.log('💬 新評論添加:', { postId, newComment });
         // 🔥 安全地更新貼文的評論
         setPosts(prevPosts => {
             if (!Array.isArray(prevPosts)) return [];
-            
+
             return prevPosts.map(post => {
                 if (post && post.id === postId) {
                     const currentComments = Array.isArray(post.comments) ? post.comments : [];
@@ -323,17 +370,17 @@ const ModernTimelineHome = () => {
                                 className="p-2 text-gray-400 hover:text-white transition-colors duration-200 disabled:opacity-50"
                                 title="重新整理"
                             >
-                                <svg 
-                                    className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} 
-                                    fill="none" 
-                                    stroke="currentColor" 
+                                <svg
+                                    className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`}
+                                    fill="none"
+                                    stroke="currentColor"
                                     viewBox="0 0 24 24"
                                 >
-                                    <path 
-                                        strokeLinecap="round" 
-                                        strokeLinejoin="round" 
-                                        strokeWidth={2} 
-                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                                     />
                                 </svg>
                             </button>
@@ -349,12 +396,12 @@ const ModernTimelineHome = () => {
                                 {/* 🔥 用戶角色標誌 */}
                                 <span className={`
                                     ml-3 px-2 py-1 rounded-full text-xs font-medium
-                                    ${user?.userRole === 'admin' ? 'bg-red-500 text-white' : 
-                                      user?.userRole === 'verified' ? 'bg-blue-500 text-white' : 
-                                      'bg-green-500 text-white'}
+                                    ${user?.userRole === 'admin' ? 'bg-red-500 text-white' :
+                                        user?.userRole === 'verified' ? 'bg-blue-500 text-white' :
+                                            'bg-green-500 text-white'}
                                 `}>
-                                    {user?.userRole === 'admin' ? '🛡️ 管理員' : 
-                                     user?.userRole === 'verified' ? '⭐ 認證用戶' : '👤 一般用戶'}
+                                    {user?.userRole === 'admin' ? '🛡️ 管理員' :
+                                        user?.userRole === 'verified' ? '⭐ 認證用戶' : '👤 一般用戶'}
                                 </span>
                             </div>
                         )}
@@ -369,13 +416,12 @@ const ModernTimelineHome = () => {
                                 <button
                                     key={type.value}
                                     onClick={() => handleFeedTypeChange(type.value)}
-                                    className={`relative flex-1 py-3 px-3 rounded-full text-sm font-medium transition-all duration-200 ${
-                                        feedType === type.value
-                                            ? (type.value === 'recommendations' 
-                                                ? ' from-purple-500 to-pink-500 text-white shadow-lg transform scale-105'
-                                                : 'bg-white text-black shadow-lg transform scale-105')
-                                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-                                    }`}
+                                    className={`relative flex-1 py-3 px-3 rounded-full text-sm font-medium transition-all duration-200 ${feedType === type.value
+                                        ? (type.value === 'recommendations'
+                                            ? ' from-purple-500 to-pink-500 text-white shadow-lg transform scale-105'
+                                            : 'bg-white text-black shadow-lg transform scale-105')
+                                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+                                        }`}
                                     title={type.desc}
                                     disabled={loading || refreshing}
                                 >
@@ -406,7 +452,7 @@ const ModernTimelineHome = () => {
                                     </div>
                                     <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                                 </div>
-                                
+
                                 {recommendationStats.debug?.stats && (
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                         <div className="text-center p-2 bg-black/30 rounded-lg">
@@ -435,7 +481,7 @@ const ModernTimelineHome = () => {
                                         </div>
                                     </div>
                                 )}
-                                
+
                                 {/* 🔥 新增算法說明 */}
                                 <div className="mt-3 text-xs text-gray-500 text-center">
                                     追蹤用戶 70分 + 熱門度 20分 + 新鮮度 10分 + 角色加成
@@ -447,7 +493,7 @@ const ModernTimelineHome = () => {
                     {/* 發布新貼文 */}
                     {user && (
                         <div className="mb-6">
-                            <ModernPostComposer 
+                            <ModernPostComposer
                                 onPostCreated={handlePostCreated}
                                 currentUser={user}
                             />
@@ -487,12 +533,11 @@ const ModernTimelineHome = () => {
                     {refreshing && (
                         <div className="mb-6 p-4 bg-blue-900 border border-blue-700 rounded-2xl">
                             <div className="flex items-center">
-                                <div className={`w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mr-3 ${
-                                    feedType === 'recommendations' ? 'border-purple-400' : 'border-blue-400'
-                                }`}></div>
+                                <div className={`w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mr-3 ${feedType === 'recommendations' ? 'border-purple-400' : 'border-blue-400'
+                                    }`}></div>
                                 <span className="text-blue-200">
-                                    正在載入{feedType === 'all' ? '所有' : 
-                                            feedType === 'following' ? '追蹤' : 
+                                    正在載入{feedType === 'all' ? '所有' :
+                                        feedType === 'following' ? '追蹤' :
                                             feedType === 'recommendations' ? 'AI推薦' : ''}貼文...
                                 </span>
                             </div>
@@ -517,9 +562,11 @@ const ModernTimelineHome = () => {
                                             currentUser={user}
                                             onLikeChange={handleLikeChange}
                                             onCommentAdded={handleCommentAdded}
+                                            onPostDeleted={handlePostDeleted}  // 🔥 添加這一行
+                                            onInteraction={handleInteraction}  // 🔥 添加這一行
                                             showRecommendationTag={feedType === 'recommendations' && index < 3}
                                         />
-                                        
+
                                         {/* 🔥 推薦分數標籤 - 修復：放在 ModernPostCard 之後，確保正確定位 */}
                                         {feedType === 'recommendations' && post.debugScore && (
                                             <div className="absolute bottom-4 left-4  from-purple-600/95 to-pink-600/95 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full shadow-lg border border-purple-400/40 z-1">
@@ -559,16 +606,16 @@ const ModernTimelineHome = () => {
                                     )}
                                 </div>
                                 <h3 className="text-xl font-semibold text-gray-300 mb-2">
-                                    {feedType === 'following' ? '還沒有追蹤的用戶動態' : 
-                                     feedType === 'recommendations' ? '正在學習您的偏好' : 
-                                     '還沒有貼文'}
+                                    {feedType === 'following' ? '還沒有追蹤的用戶動態' :
+                                        feedType === 'recommendations' ? '正在學習您的偏好' :
+                                            '還沒有貼文'}
                                 </h3>
                                 <p className="text-gray-500 mb-6">
-                                    {feedType === 'following' 
-                                        ? '去追蹤一些有趣的用戶，就能看到他們的動態了！' 
+                                    {feedType === 'following'
+                                        ? '去追蹤一些有趣的用戶，就能看到他們的動態了！'
                                         : feedType === 'recommendations'
-                                        ? '追蹤一些用戶、按讚一些貼文，AI 就能為您推薦更符合興趣的內容！'
-                                        : '成為第一個發布貼文的人吧！'
+                                            ? '追蹤一些用戶、按讚一些貼文，AI 就能為您推薦更符合興趣的內容！'
+                                            : '成為第一個發布貼文的人吧！'
                                     }
                                 </p>
                                 <div className="space-x-3">
@@ -605,11 +652,10 @@ const ModernTimelineHome = () => {
                             <button
                                 onClick={() => loadPosts(false)}
                                 disabled={refreshing}
-                                className={`px-6 py-3 rounded-full transition-colors duration-200 disabled:opacity-50 ${
-                                    feedType === 'recommendations'
-                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700'
-                                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                                }`}
+                                className={`px-6 py-3 rounded-full transition-colors duration-200 disabled:opacity-50 ${feedType === 'recommendations'
+                                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700'
+                                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                                    }`}
                             >
                                 {refreshing ? (
                                     <div className="flex items-center space-x-2">
